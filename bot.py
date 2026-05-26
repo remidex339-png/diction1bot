@@ -5,9 +5,12 @@ from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.request import HTTPXRequest
 
 # Get bot token from Railway environment variables
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+PORT = int(os.environ.get("PORT", 8080))
+WEBHOOK_URL = os.environ.get("RAILWAY_PUBLIC_DOMAIN") or os.environ.get("WEBHOOK_URL")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -65,20 +68,39 @@ async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Error: {str(e)}")
 
+async def health_check(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🤖 Bot is alive!")
+
 def main():
     if not TOKEN:
         print("❌ TELEGRAM_BOT_TOKEN environment variable not set!")
         return
     
     # Create bot application
-    app = Application.builder().token(TOKEN).build()
+    application = Application.builder().token(TOKEN).build()
     
     # Add handlers
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.PHOTO, convert_to_pdf))
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("health", health_check))
+    application.add_handler(MessageHandler(filters.PHOTO, convert_to_pdf))
     
-    print("🤖 Bot is running...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Set webhook or polling
+    if WEBHOOK_URL:
+        # Use webhook (production on Railway)
+        webhook_path = f"/webhook/{TOKEN}"
+        full_webhook_url = f"{WEBHOOK_URL}{webhook_path}"
+        
+        print(f"🚀 Setting webhook: {full_webhook_url}")
+        application.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=webhook_path,
+            webhook_url=full_webhook_url
+        )
+    else:
+        # Fallback to polling (for local development)
+        print("🤖 Running in polling mode...")
+        application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 if __name__ == "__main__":
     main()
